@@ -1,6 +1,6 @@
 import express from 'express';
 import ApiResponse from '../utils/ApiResponse.js';
-import { getDBStatus } from '../config/db.js';
+import { getDBStatus, connectDB } from '../config/db.js';
 
 const router = express.Router();
 
@@ -10,6 +10,10 @@ const router = express.Router();
  * @access  Public
  */
 router.get('/', (req, res) => {
+  const dbStatus = getDBStatus();
+  if (dbStatus === 'disconnected') {
+    connectDB().catch(() => {});
+  }
   const healthData = {
     status: 'healthy',
     timestamp: new Date().toISOString(),

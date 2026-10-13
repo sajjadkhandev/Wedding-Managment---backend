@@ -2,45 +2,37 @@ import mongoose from 'mongoose';
 import logger from '../utils/logger.js';
 
 let isConnected = false;
+let isConnecting = false;
 
 export const connectDB = async (retryCount = 0) => {
   const mongoURI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/wedplan_db';
 
-  if (isConnected) {
-    logger.db('MongoDB already connected.');
+  if (mongoose.connection.readyState === 1) {
+    isConnected = true;
     return;
   }
 
+  if (isConnecting) return;
+  isConnecting = true;
+
   try {
     const conn = await mongoose.connect(mongoURI, {
-      serverSelectionTimeoutMS: 15000 // 15s timeout for cloud environments like Render
+      serverSelectionTimeoutMS: 20000,
+      connectTimeoutMS: 20000
     });
 
     isConnected = true;
+    isConnecting = false;
     logger.db(`MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
   } catch (err) {
+    isConnected = false;
+    isConnecting = false;
     logger.error(`MongoDB Connection Failed: ${err.message}`);
 
-    // Automatically retry in cloud environments if IP whitelist is propagating
-    if (retryCount < 5) {
-      const nextAttempt = retryCount + 1;
-      logger.info(`Retrying MongoDB connection in 10 seconds (attempt ${nextAttempt}/5)...`);
-      setTimeout(() => connectDB(nextAttempt), 10000);
-    } else {
-      logger.warn(
-        '\n' +
-        '========================================================================\n' +
-        ' [NOTE FOR RENDER DEPLOYMENT / MONGODB ATLAS]:\n' +
-        ' MongoDB Atlas rejected the connection because Render IP is not whitelisted.\n' +
-        ' Quick Fix in 2 minutes:\n' +
-        '   1. Go to MongoDB Atlas (https://cloud.mongodb.com)\n' +
-        '   2. Click "Network Access" under "Security" on the left menu.\n' +
-        '   3. Click "Add IP Address" -> Click "Allow Access From Anywhere" (0.0.0.0/0).\n' +
-        '   4. Click "Confirm" and wait 1 minute for it to become Active.\n' +
-        '   5. On Render dashboard, click "Manual Deploy" -> "Deploy latest commit".\n' +
-        '========================================================================\n'
-      );
-    }
+    // Continuously retry in background every 15-20 seconds until connected
+    const delay = Math.min(25000, 10000 + (retryCount % 4) * 5000);
+    logger.info(`Retrying MongoDB connection in ${Math.round(delay / 1000)}s (attempt ${retryCount + 1})...`);
+    setTimeout(() => connectDB(retryCount + 1), delay);
   }
 
   mongoose.connection.on('disconnected', () => {
