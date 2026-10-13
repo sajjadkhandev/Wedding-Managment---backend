@@ -3,7 +3,7 @@ import logger from '../utils/logger.js';
 
 let isConnected = false;
 
-export const connectDB = async () => {
+export const connectDB = async (retryCount = 0) => {
   const mongoURI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/wedplan_db';
 
   if (isConnected) {
@@ -13,26 +13,34 @@ export const connectDB = async () => {
 
   try {
     const conn = await mongoose.connect(mongoURI, {
-      serverSelectionTimeoutMS: 5000 // Fail fast if local mongod is not reachable
+      serverSelectionTimeoutMS: 15000 // 15s timeout for cloud environments like Render
     });
 
     isConnected = true;
     logger.db(`MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
   } catch (err) {
     logger.error(`MongoDB Connection Failed: ${err.message}`);
-    logger.warn(
-      '\n' +
-      '========================================================================\n' +
-      ' [NOTE FOR DEVELOPER]:\n' +
-      ' Local MongoDB server (mongod) is not currently running on this machine.\n' +
-      ' To enable full database functionality:\n' +
-      '   1. Either start local MongoDB service: "net start MongoDB"\n' +
-      '   2. OR create a free MongoDB Atlas cloud database (https://www.mongodb.com/atlas)\n' +
-      '      and paste your URI in "server/.env":\n' +
-      '      MONGODB_URI=mongodb+srv://<user>:<password>@cluster.mongodb.net/wedplan_db\n' +
-      ' The backend API server will still start and serve health check endpoints.\n' +
-      '========================================================================\n'
-    );
+
+    // Automatically retry in cloud environments if IP whitelist is propagating
+    if (retryCount < 5) {
+      const nextAttempt = retryCount + 1;
+      logger.info(`Retrying MongoDB connection in 10 seconds (attempt ${nextAttempt}/5)...`);
+      setTimeout(() => connectDB(nextAttempt), 10000);
+    } else {
+      logger.warn(
+        '\n' +
+        '========================================================================\n' +
+        ' [NOTE FOR RENDER DEPLOYMENT / MONGODB ATLAS]:\n' +
+        ' MongoDB Atlas rejected the connection because Render IP is not whitelisted.\n' +
+        ' Quick Fix in 2 minutes:\n' +
+        '   1. Go to MongoDB Atlas (https://cloud.mongodb.com)\n' +
+        '   2. Click "Network Access" under "Security" on the left menu.\n' +
+        '   3. Click "Add IP Address" -> Click "Allow Access From Anywhere" (0.0.0.0/0).\n' +
+        '   4. Click "Confirm" and wait 1 minute for it to become Active.\n' +
+        '   5. On Render dashboard, click "Manual Deploy" -> "Deploy latest commit".\n' +
+        '========================================================================\n'
+      );
+    }
   }
 
   mongoose.connection.on('disconnected', () => {

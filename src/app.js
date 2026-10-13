@@ -14,11 +14,28 @@ const app = express();
 // Security HTTP headers
 app.use(helmet());
 
-// CORS Configuration
-const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
+// CORS Configuration - Permissive for seamless cloud frontend-backend communication
 app.use(
   cors({
-    origin: allowedOrigin,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      const configuredOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
+        .split(',')
+        .map(url => url.trim());
+      if (
+        configuredOrigins.includes('*') || 
+        configuredOrigins.includes(origin) || 
+        origin.includes('localhost') || 
+        origin.includes('127.0.0.1') || 
+        origin.endsWith('.onrender.com') || 
+        origin.endsWith('.vercel.app') || 
+        origin.endsWith('.netlify.app')
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true); // Fallback allow in production to prevent blocking
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
